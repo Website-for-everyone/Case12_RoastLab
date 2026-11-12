@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+
+<script>
+(function() {
+  const MOCK_DB = {"/api/beans": {"status": "ok", "beans": [{"id": 4, "name": "Brazil Cerrado Dulce", "origin": "Brazil", "slug": "brazil_cerrado", "process": "Natural", "altitude": "1000-1150m", "acidity": 3, "sweetness": 7, "bitterness": 6, "body": 9, "floral": 3, "descriptors": "Жареный фундук, темный шоколад, карамельная помадка", "roast_level": "Medium-Dark / Espresso", "price_250g": 750, "price_1kg": 2500, "in_stock": 1, "radar_points": "150.0,117.0 223.2,126.2 188.8,203.4 91.8,230.1 118.6,139.8"}, {"id": 2, "name": "Colombia Huila Supremo", "origin": "Colombia", "slug": "colombia_huila", "process": "Washed", "altitude": "1650-1800m", "acidity": 6, "sweetness": 9, "bitterness": 4, "body": 7, "floral": 6, "descriptors": "Красное яблоко, молочный шоколад, тростниковый сахар", "roast_level": "Medium / Omni", "price_250g": 880, "price_1kg": 2900, "in_stock": 1, "radar_points": "150.0,84.0 244.2,119.4 175.9,185.6 104.7,212.3 87.2,129.6"}, {"id": 6, "name": "Rwanda Bourbon CWS", "origin": "Rwanda", "slug": "rwanda_bourbon", "process": "Washed", "altitude": "1800-2000m", "acidity": 8, "sweetness": 8, "bitterness": 3, "body": 6, "floral": 9, "descriptors": "Черный чай с бергамотом, цветы апельсина, клюква в сахаре", "roast_level": "Light / Filter", "price_250g": 920, "price_1kg": 3100, "in_stock": 1, "radar_points": "150.0,62.0 233.7,122.8 169.4,176.7 111.2,203.4 55.8,119.4"}, {"id": 1, "name": "Ethiopia Yirgacheffe Chelchele", "origin": "Ethiopia", "slug": "ethiopia_yirgacheffe", "process": "Washed", "altitude": "1950-2100m", "acidity": 9, "sweetness": 8, "bitterness": 2, "body": 5, "floral": 10, "descriptors": "Бергамот, белый жасмин, спелый персик, лемонграсс", "roast_level": "Light / Filter", "price_250g": 950, "price_1kg": 3200, "in_stock": 1, "radar_points": "150.0,51.0 233.7,122.8 162.9,167.8 117.7,194.5 45.4,116.0"}, {"id": 5, "name": "Costa Rica Tarrazu Jaguar", "origin": "Costa Rica", "slug": "costa_rica_tarrazu", "process": "Honey", "altitude": "1500-1700m", "acidity": 7, "sweetness": 9, "bitterness": 3, "body": 7, "floral": 7, "descriptors": "Липовый мед, сушеный инжир, темная слива", "roast_level": "Medium / Filter", "price_250g": 980, "price_1kg": 3300, "in_stock": 1, "radar_points": "150.0,73.0 244.2,119.4 169.4,176.7 104.7,212.3 76.8,126.2"}, {"id": 3, "name": "Kenya Nyeri AA Kirinyaga", "origin": "Kenya", "slug": "kenya_nyeri", "process": "Washed", "altitude": "1750-1900m", "acidity": 10, "sweetness": 8, "bitterness": 3, "body": 6, "floral": 8, "descriptors": "Черная смородина, спелый грейпфрут, брусничный джем", "roast_level": "Light / Filter", "price_250g": 1100, "price_1kg": 3700, "in_stock": 1, "radar_points": "150.0,40.0 233.7,122.8 169.4,176.7 111.2,203.4 66.3,122.8"}]}, "/api/drips": {"status": "ok", "drip_packs": [{"id": 2, "title": "Drip Box 'South America Comfort' (10 шт)", "slug": "drip_america", "box_count": 10, "price_rub": 890, "description": "5х Бразилия Серрадо + 5х Колумбия Уила с шоколадно-карамельным профилем"}, {"id": 1, "title": "Drip Box 'African Gems' (10 шт)", "slug": "drip_africa", "box_count": 10, "price_rub": 990, "description": "5х Эфиопия Иргачефф + 5х Кения Ньери для яркого утра"}, {"id": 3, "title": "Drip Box 'Geisha & Rare Micro-lots' (10 шт)", "slug": "drip_rare", "box_count": 10, "price_rub": 1490, "description": "Эксклюзивная подборка микролотов анаэробной ферментации"}]}};
+  const STORAGE_KEY = "idrisov_demo_" + "Case12_RoastLab";
+  let localState = {};
+  try { localState = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch(e) {}
+  function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(localState)); } catch(e) {} }
+
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    const urlStr = typeof input === "string" ? input : (input && input.url) || "";
+    if (!urlStr.includes("/api/")) {
+      return origFetch(input, init);
+    }
+
+    const method = ((init && init.method) || "GET").toUpperCase();
+    let body = {};
+    if (init && init.body && typeof init.body === "string") {
+      try { body = JSON.parse(init.body); } catch(e) {}
+    }
+
+    const pathOnly = urlStr.split("?")[0];
+    const urlPath = pathOnly.startsWith("http") ? new URL(pathOnly).pathname : pathOnly;
+
+    // 1. Exact GET match from extracted FastAPI TestClient data
+    if (method === "GET") {
+      if (MOCK_DB[urlStr]) return jsonResp(MOCK_DB[urlStr]);
+      if (MOCK_DB[urlPath]) return jsonResp(MOCK_DB[urlPath]);
+      for (const k of Object.keys(MOCK_DB)) {
+        if (k.split("?")[0] === urlPath) return jsonResp(MOCK_DB[k]);
+      }
+      if (urlPath.includes("/api/dataset/") && !MOCK_DB[urlPath]) {
+        const fallbackKey = Object.keys(MOCK_DB).find(k => k.startsWith("/api/dataset/"));
+        if (fallbackKey) return jsonResp(MOCK_DB[fallbackKey]);
+      }
+    }
+
+    // 2. Dynamic Calculators & Interactive Endpoints
+    if (urlPath.endsWith("/calculate")) {
+      const base = Number(body.base_price || body.area || body.days || 1) * 1500 || 4500;
+      const total = Math.max(2500, Math.round(base + (Number(body.weight_kg || 5) * 200)));
+      return jsonResp({
+        status: "ok",
+        total_price: total,
+        price_rub: total,
+        estimated_price: total,
+        duration_minutes: 90,
+        breakdown: { base: Math.round(total * 0.7), extras: Math.round(total * 0.3) },
+        currency: "RUB"
+      });
+    }
+
+    if (urlPath.includes("/estimate")) {
+      return jsonResp({
+        status: "ok",
+        total_rub: 3850000,
+        timeline_weeks: 8,
+        summary: "Смета сформирована (Static Demo Mode)",
+        estimate_id: "EST-" + Math.floor(1000 + Math.random() * 9000)
+      });
+    }
+
+    if (urlPath.includes("/query") || urlPath.includes("/historian/ask")) {
+      const q = body.question || body.query || body.prompt || "Анализ данных";
+      return jsonResp({
+        status: "ok",
+        answer: "Аналитический ответ (Demo AI): по запросу «" + q + "» выявлена устойчивая корреляция (r = 0.78, p < 0.01). Медианные значения находятся в пределах целевого диапазона без критических выбросов.",
+        metrics: [
+          { label: "Медиана", value: "42.8" },
+          { label: "Std Dev", value: "6.14" },
+          { label: "Выбросы", value: "2.1%" }
+        ]
+      });
+    }
+
+    if (urlPath.includes("/quiz/recommend")) {
+      return jsonResp({
+        status: "ok",
+        recommendation: {
+          name: "Ethiopia Yirgacheffe Kochere",
+          origin: "Ethiopia",
+          roast: "Light Filter",
+          notes: ["Бергамот", "Жасмин", "Персик"],
+          match_percent: 96
+        }
+      });
+    }
+
+    if (urlPath.includes("/verify-passcode")) {
+      return jsonResp({ status: "success", unlocked: true, valid: true, message: "VIP ACCESS GRANTED" });
+    }
+
+    if (urlPath.includes("/track-order")) {
+      return jsonResp({
+        status: "success",
+        order_id: urlPath.split("/").pop() || "CR-2026",
+        stage: "Регулировка хода и тест герметичности (Этап 4/5)",
+        master: "Виктор К.",
+        eta: "2 дня"
+      });
+    }
+
+    if (urlPath.includes("/tasks")) {
+      localState.tasks = localState.tasks || (MOCK_DB["/api/tasks"] && MOCK_DB["/api/tasks"].tasks) || [];
+      if (method === "POST" && urlPath.endsWith("/tasks")) {
+        const t = { id: Date.now(), title: body.title || "Новая задача", duration_hours: Number(body.duration_hours || 1), quadrant: body.quadrant || "urgent_important", is_completed: false };
+        localState.tasks.push(t);
+        saveState();
+        return jsonResp({ status: "ok", task: t, tasks: localState.tasks });
+      }
+      if (urlPath.includes("/toggle")) {
+        const id = Number(urlPath.split("/")[3]);
+        localState.tasks = localState.tasks.map(t => t.id === id ? { ...t, is_completed: !t.is_completed } : t);
+        saveState();
+        return jsonResp({ status: "ok", tasks: localState.tasks });
+      }
+      if (method === "DELETE") {
+        const id = Number(urlPath.split("/").pop());
+        localState.tasks = localState.tasks.filter(t => t.id !== id);
+        saveState();
+        return jsonResp({ status: "ok", tasks: localState.tasks });
+      }
+      return jsonResp({ tasks: localState.tasks });
+    }
+
+    if (urlPath === "/api/state") {
+      return jsonResp(MOCK_DB["/api/state"] || {
+        title: "LIVE RAP & TECH BATTLE // FINAL",
+        round: 3,
+        status: "VOTING_OPEN",
+        fighters: [
+          { id: "mc_a", name: "MC NEON", votes: 142, color: "#00f0ff" },
+          { id: "mc_b", name: "BYTE_KILLER", votes: 138, color: "#ff007f" }
+        ]
+      });
+    }
+
+    if (urlPath === "/api/vote") {
+      return jsonResp({ status: "ok", message: "Голос учтен!", voted: true });
+    }
+
+    // Default POST confirmation (bookings, orders, quotes, appraisals, seat reservations)
+    const refId = "ID-" + Math.floor(10000 + Math.random() * 90000);
+    return jsonResp({
+      status: "ok",
+      success: true,
+      id: refId,
+      booking_id: refId,
+      cert_id: refId,
+      voucher: "VIP-" + refId,
+      order_id: refId,
+      message: "Заявка #" + refId + " успешно оформлена и синхронизирована с Telegram-ботом @Idrisov_prod!"
+    });
+  };
+
+  function jsonResp(data) {
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+})();
+</script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roast Lab | Craft Specialty Coffee Roasters</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,800;1,400&family=Space+Grotesk:wght@400;500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-cream: #F4EFEA;
+      --bg-card: #FFFFFF;
+      --text-espresso: #2B1E1A;
+      --text-muted: #7A6F68;
+      --terracotta: #D97757;
+      --terracotta-hover: #C26344;
+      --sage: #758A71;
+      --warm-border: #E5DDD3;
+      --dark-wood: #1D1411;
+      --gold-accent: #CFA468;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-cream);
+      color: var(--text-espresso);
+      font-family: 'Inter', sans-serif;
+      line-height: 1.5;
+      background-image: radial-gradient(circle at 100% 0%, rgba(217, 119, 87, 0.08) 0%, transparent 50%),
+                        radial-gradient(circle at 0% 100%, rgba(117, 138, 113, 0.08) 0%, transparent 50%);
+    }
+
+    header {
+      padding: 1.25rem 2.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(244, 239, 234, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--warm-border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+    }
+
+    .brand-name {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--text-espresso);
+    }
+
+    .brand-tag {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--terracotta);
+      font-weight: 700;
+    }
+
+    .nav-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 0.65rem 1.35rem;
+      border-radius: 30px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.25s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-decoration: none;
+    }
+
+    .btn-terracotta {
+      background: var(--terracotta);
+      color: #fff;
+    }
+
+    .btn-terracotta:hover {
+      background: var(--terracotta-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(217, 119, 87, 0.3);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--text-espresso);
+      color: var(--text-espresso);
+    }
+
+    .btn-outline:hover {
+      background: var(--text-espresso);
+      color: var(--bg-cream);
+    }
+
+    /* Hero Section */
+    .hero {
+      max-width: 1280px;
+      margin: 3rem auto 2rem;
+      padding: 0 1.5rem;
+      text-align: center;
+    }
+
+    .hero-eyebrow {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: var(--sage);
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .hero-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 3.2rem;
+      font-weight: 800;
+      color: var(--text-espresso);
+      line-height: 1.15;
+      max-width: 820px;
+      margin: 0 auto 1.25rem;
+    }
+
+    .hero-desc {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 2rem;
+    }
+
+    /* Radar Showcase Workspace */
+    .radar-showcase {
+      max-width: 1280px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 960px) {
+      .radar-showcase {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Beans List Side */
+    .beans-card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .bean-list-item {
+      background: #fff;
+      border: 1px solid var(--warm-border);
+      border-radius: 14px;
+      padding: 1.1rem;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .bean-list-item:hover, .bean-list-item.active {
+      border-color: var(--terracotta);
+      box-shadow: 0 8px 24px rgba(217, 119, 87, 0.15);
+      transform: translateX(4px);
+    }
+
+    .bean-name {
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text-espresso);
+    }
+
+    .bean-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    /* Radar Card */
+    .radar-container-card {
+      background: #fff;
+      border: 1px solid var(--warm-border);
+      border-radius: 20px;
+      padding: 2.5rem;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 2rem;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(43, 30, 26, 0.04);
+    }
+
+    @media (max-width: 768px) {
+      .radar-container-card {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .radar-svg-wrapper {
+      position: relative;
+      width: 300px;
+      height: 300px;
+      margin: 0 auto;
+    }
+
+    .radar-details {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .radar-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.8rem;
+      color: var(--text-espresso);
+    }
+
+    .descriptors-badge {
+      display: inline-block;
+      background: rgba(217, 119, 87, 0.12);
+      color: var(--terracotta);
+      padding: 0.4rem 0.8rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .metrics-bar-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+
+    .metric-item {
+      font-size: 0.85rem;
+    }
+
+    .metric-item strong {
+      color: var(--text-espresso);
+    }
+
+    /* Quiz Banner */
+    .quiz-banner {
+      max-width: 1280px;
+      margin: 3.5rem auto;
+      padding: 3rem 2rem;
+      background: var(--dark-wood);
+      color: #fff;
+      border-radius: 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      background-image: radial-gradient(circle at 20% 30%, rgba(207, 164, 104, 0.2) 0%, transparent 40%);
+    }
+
+    .quiz-banner h2 {
+      font-family: 'Playfair Display', serif;
+      font-size: 2.4rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .quiz-banner p {
+      color: #D5CDC5;
+      font-size: 1.05rem;
+      max-width: 600px;
+      margin: 0 auto 1.8rem;
+    }
+
+    /* Modal / Quiz Wizard */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(29, 20, 17, 0.7);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1rem;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #fff;
+      border-radius: 20px;
+      max-width: 580px;
+      width: 100%;
+      padding: 2.2rem;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    }
+
+    .quiz-step-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+      color: var(--text-espresso);
+    }
+
+    .quiz-options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .quiz-opt-btn {
+      background: var(--bg-cream);
+      border: 1px solid var(--warm-border);
+      border-radius: 12px;
+      padding: 1rem;
+      cursor: pointer;
+      text-align: left;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .quiz-opt-btn:hover, .quiz-opt-btn.active {
+      border-color: var(--terracotta);
+      background: #fff;
+      box-shadow: 0 4px 12px rgba(217, 119, 87, 0.15);
+      color: var(--terracotta);
+    }
+
+    /* Drip packs section */
+    .catalog-section {
+      max-width: 1280px;
+      margin: 4rem auto;
+      padding: 0 1.5rem;
+    }
+
+    .section-head {
+      margin-bottom: 1.8rem;
+    }
+
+    .section-head h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 2rem;
+    }
+
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .product-card {
+      background: #fff;
+      border: 1px solid var(--warm-border);
+      border-radius: 16px;
+      padding: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+
+    .cart-drawer {
+      position: fixed;
+      right: -420px;
+      top: 0;
+      bottom: 0;
+      width: 400px;
+      background: #fff;
+      box-shadow: -10px 0 30px rgba(0,0,0,0.1);
+      z-index: 200;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      transition: right 0.3s ease;
+    }
+
+    .cart-drawer.open {
+      right: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-name">Roast Lab</div>
+      <div class="brand-tag">Specialty Roasters</div>
+    </div>
+    <div class="nav-actions">
+      <button class="btn btn-outline" onclick="openQuizModal()">🧭 Квиз подбора зерен</button>
+      <button class="btn btn-terracotta" onclick="openCartDrawer()">🛒 Корзина (<span id="cartCount">0</span>)</button>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-eyebrow">Direct Trade • Micro-lots • Fresh Roast</div>
+    <h1 class="hero-title">Истинный вкус кофейного терруара в каждой чашке</h1>
+    <p class="hero-desc">Исследуйте вкусовые профили спешелти-лотов свежего урожая через интерактивную радарную диаграмму.</p>
+  </section>
+
+  <!-- Radar Workspace -->
+  <main class="radar-showcase">
+    <!-- Beans list -->
+    <div class="beans-card-list" id="beansList">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- Active Bean Radar Display -->
+    <div class="radar-container-card">
+      <div class="radar-svg-wrapper">
+        <svg viewBox="0 0 300 300" width="300" height="300">
+          <!-- Background Axis Grid -->
+          <circle cx="150" cy="150" r="110" fill="none" stroke="#E5DDD3" stroke-width="1" />
+          <circle cx="150" cy="150" r="82.5" fill="none" stroke="#E5DDD3" stroke-width="1" stroke-dasharray="2 2" />
+          <circle cx="150" cy="150" r="55" fill="none" stroke="#E5DDD3" stroke-width="1" stroke-dasharray="2 2" />
+          <circle cx="150" cy="150" r="27.5" fill="none" stroke="#E5DDD3" stroke-width="1" stroke-dasharray="2 2" />
+
+          <!-- Axis Lines from Center -->
+          <!-- 1: Acidity (-90 deg: x=150, y=40) -->
+          <line x1="150" y1="150" x2="150" y2="40" stroke="#E5DDD3" stroke-width="1" />
+          <!-- 2: Sweetness (-18 deg: x=254.6, y=116) -->
+          <line x1="150" y1="150" x2="254.6" y2="116" stroke="#E5DDD3" stroke-width="1" />
+          <!-- 3: Bitterness (54 deg: x=214.7, y=239) -->
+          <line x1="150" y1="150" x2="214.7" y2="239" stroke="#E5DDD3" stroke-width="1" />
+          <!-- 4: Body (126 deg: x=85.3, y=239) -->
+          <line x1="150" y1="150" x2="85.3" y2="239" stroke="#E5DDD3" stroke-width="1" />
+          <!-- 5: Floral (198 deg: x=45.4, y=116) -->
+          <line x1="150" y1="150" x2="45.4" y2="116" stroke="#E5DDD3" stroke-width="1" />
+
+          <!-- Axis Labels -->
+          <text x="150" y="28" font-size="10" font-family="'Space Grotesk'" font-weight="700" fill="#7A6F68" text-anchor="middle">КИСЛОТНОСТЬ</text>
+          <text x="265" y="120" font-size="10" font-family="'Space Grotesk'" font-weight="700" fill="#7A6F68" text-anchor="start">СЛАДОСТЬ</text>
+          <text x="220" y="255" font-size="10" font-family="'Space Grotesk'" font-weight="700" fill="#7A6F68" text-anchor="start">ГОРЕЧЬ</text>
+          <text x="75" y="255" font-size="10" font-family="'Space Grotesk'" font-weight="700" fill="#7A6F68" text-anchor="end">ТЕЛО</text>
+          <text x="35" y="120" font-size="10" font-family="'Space Grotesk'" font-weight="700" fill="#7A6F68" text-anchor="end">АРОМАТ</text>
+
+          <!-- Dynamic Radar Polygon -->
+          <polygon id="radarPolygon" points="150,51 244,119 169,177 118,194 56,120"
+                   fill="rgba(217, 119, 87, 0.45)" stroke="#D97757" stroke-width="2.5" />
+        </svg>
+      </div>
+
+      <!-- Bean Details -->
+      <div class="radar-details">
+        <h2 class="radar-title" id="activeBeanTitle">Ethiopia Yirgacheffe</h2>
+        <div class="descriptors-badge" id="activeDescriptors">Бергамот, белый жасмин, спелый персик</div>
+
+        <div class="metrics-bar-grid">
+          <div class="metric-item">Страна: <strong id="activeOrigin">Эфиопия</strong></div>
+          <div class="metric-item">Обработка: <strong id="activeProcess">Мытая</strong></div>
+          <div class="metric-item">Высота: <strong id="activeAltitude">1950-2100м</strong></div>
+          <div class="metric-item">Обжарка: <strong id="activeRoast">Light / Filter</strong></div>
+        </div>
+
+        <div style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-size: 1.4rem; font-weight: 700; color: var(--text-espresso);" id="activePrice">950 ₽ / 250г</div>
+          <button class="btn btn-terracotta" onclick="addActiveBeanToCart()">Добавить в корзину</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Quiz Banner -->
+  <section class="quiz-banner">
+    <h2>Не знаете, с чего начать?</h2>
+    <p>Ответьте на 3 простых вопроса о ваших вкусах, и наш алгоритм подберет идеальное зерно с рецептом заваривания.</p>
+    <button class="btn btn-terracotta" style="padding: 0.9rem 2rem; font-size: 1rem;" onclick="openQuizModal()">Пройти квиз за 30 секунд</button>
+  </section>
+
+  <!-- Drip Packs Catalog Section -->
+  <section class="catalog-section">
+    <div class="section-head">
+      <h3>Дрип-пакеты (Drip Bags)</h3>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">Идеальный спешелти кофе в чашке без кофемолок и весов — где угодно.</p>
+    </div>
+    <div class="products-grid" id="dripsGrid">
+      <!-- Injected via JS -->
+    </div>
+  </section>
+
+  <!-- 3-Step Quiz Modal -->
+  <div class="modal-overlay" id="quizModal">
+    <div class="modal-box">
+      <!-- Step 1 -->
+      <div id="quizStep1">
+        <h3 class="quiz-step-title">Шаг 1 из 3: Как вы завариваете кофе?</h3>
+        <div class="quiz-options-grid">
+          <button class="quiz-opt-btn" onclick="selectQuizStep1('v60')">☕ Воронка V60 / Фильтр</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep1('espresso')">⚡ Эспрессо / Турка</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep1('french')">🫖 Френч-пресс</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep1('cold')">🧊 Cold Brew / Со льдом</button>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div id="quizStep2" style="display: none;">
+        <h3 class="quiz-step-title">Шаг 2 из 3: Какой вкус вам ближе?</h3>
+        <div class="quiz-options-grid">
+          <button class="quiz-opt-btn" onclick="selectQuizStep2('fruity')">🍓 Яркий ягодный и цитрусовый</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep2('sweet_chocolate')">🍫 Шоколад, карамель и орехи</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep2('floral')">🌸 Нежный цветочный и чайный</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep2('honey_fig')">🍯 Мед, инжир и темная слива</button>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div id="quizStep3" style="display: none;">
+        <h3 class="quiz-step-title">Шаг 3 из 3: Добавляете ли молоко?</h3>
+        <div class="quiz-options-grid">
+          <button class="quiz-opt-btn" onclick="selectQuizStep3('black')">🖤 Только черный кофе</button>
+          <button class="quiz-opt-btn" onclick="selectQuizStep3('cream')">🥛 Да, люблю капучино / латте</button>
+        </div>
+      </div>
+
+      <!-- Result Card -->
+      <div id="quizResult" style="display: none;">
+        <h3 class="quiz-step-title" style="color: var(--terracotta);">✨ Ваш идеальный лот:</h3>
+        <div style="background: var(--bg-cream); padding: 1.25rem; border-radius: 12px; margin-bottom: 1.25rem;" id="quizResultContent">
+          <!-- Injected via JS -->
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button class="btn btn-outline" onclick="closeQuizModal()" style="flex: 1;">Закрыть</button>
+          <button class="btn btn-terracotta" id="quizAddBtn" style="flex: 2;">В корзину</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cart Drawer -->
+  <div class="cart-drawer" id="cartDrawer">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <h3 style="font-family: 'Playfair Display', serif; font-size: 1.5rem;">Корзина</h3>
+      <button onclick="closeCartDrawer()" style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">&times;</button>
+    </div>
+    <div id="cartItemsList" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem;">
+      <!-- Injected -->
+    </div>
+    <div style="border-top: 1px solid var(--warm-border); padding-top: 1rem; margin-top: 1rem;">
+      <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.2rem; margin-bottom: 1rem;">
+        <span>Итого:</span>
+        <span id="cartTotalPrice">0 ₽</span>
+      </div>
+      <button class="btn btn-terracotta" style="width: 100%; justify-content: center;" onclick="openCheckoutModal()">Оформить заказ</button>
+    </div>
+  </div>
+
+  <script>
+    let allBeans = [];
+    let currentBean = null;
+    let cart = [];
+    let quizState = { brew: "v60", flavor: "fruity", milk: "black" };
+
+    window.addEventListener("DOMContentLoaded", () => {
+      fetchBeans();
+      fetchDrips();
+    });
+
+    async function fetchBeans() {
+      try {
+        const res = await fetch("/api/beans");
+        const data = await res.json();
+        allBeans = data.beans;
+        renderBeansList(allBeans);
+        if (allBeans.length > 0) {
+          selectBean(allBeans[0]);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function fetchDrips() {
+      try {
+        const res = await fetch("/api/drips");
+        const data = await res.json();
+        renderDrips(data.drip_packs);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderBeansList(beans) {
+      const list = document.getElementById("beansList");
+      list.innerHTML = beans.map(b => `
+        <div class="bean-list-item ${currentBean && currentBean.id === b.id ? 'active' : ''}" onclick="selectBeanBySlug('${b.slug}')">
+          <div class="bean-name">${b.name}</div>
+          <div class="bean-meta">
+            <span>🌍 ${b.origin}</span>
+            <span>💧 ${b.process}</span>
+            <span>💰 ${b.price_250g} ₽</span>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function selectBeanBySlug(slug) {
+      const bean = allBeans.find(b => b.slug === slug);
+      if (bean) selectBean(bean);
+    }
+
+    function selectBean(bean) {
+      currentBean = bean;
+      renderBeansList(allBeans);
+
+      // Update Details
+      document.getElementById("activeBeanTitle").textContent = bean.name;
+      document.getElementById("activeDescriptors").textContent = bean.descriptors;
+      document.getElementById("activeOrigin").textContent = bean.origin;
+      document.getElementById("activeProcess").textContent = bean.process;
+      document.getElementById("activeAltitude").textContent = bean.altitude;
+      document.getElementById("activeRoast").textContent = bean.roast_level;
+      document.getElementById("activePrice").textContent = `${bean.price_250g} ₽ / 250г`;
+
+      // Animate Radar Polygon
+      const polygon = document.getElementById("radarPolygon");
+      polygon.setAttribute("points", bean.radar_points);
+    }
+
+    function renderDrips(drips) {
+      const grid = document.getElementById("dripsGrid");
+      grid.innerHTML = drips.map(d => `
+        <div class="product-card">
+          <h4 style="font-size: 1.15rem; font-weight: 700;">${d.title}</h4>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">${d.description}</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+            <span style="font-weight: 700; font-size: 1.2rem;">${d.price_rub} ₽</span>
+            <button class="btn btn-terracotta" onclick="addToCart('${d.title}', '10 шт', ${d.price_rub})">В корзину</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    // Cart Operations
+    function addToCart(title, variant, price) {
+      cart.push({ title, variant, quantity: 1, price_rub: price });
+      updateCartUI();
+      openCartDrawer();
+    }
+
+    function addActiveBeanToCart() {
+      if (currentBean) {
+        addToCart(currentBean.name, "250г", currentBean.price_250g);
+      }
+    }
+
+    function updateCartUI() {
+      document.getElementById("cartCount").textContent = cart.length;
+      const list = document.getElementById("cartItemsList");
+      if (cart.length === 0) {
+        list.innerHTML = "<p style='color: var(--text-muted); text-align: center; margin-top: 2rem;'>Корзина пуста</p>";
+      } else {
+        list.innerHTML = cart.map((item, idx) => `
+          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--warm-border); padding-bottom: 0.5rem;">
+            <div>
+              <div style="font-weight: 600; font-size: 0.9rem;">${item.title}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">${item.variant}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-weight: 700;">${item.price_rub} ₽</div>
+              <button onclick="removeFromCart(${idx})" style="background:none; border:none; color: var(--terracotta); font-size: 0.75rem; cursor:pointer;">удалить</button>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      const total = cart.reduce((sum, i) => sum + i.price_rub * i.quantity, 0);
+      document.getElementById("cartTotalPrice").textContent = `${total} ₽`;
+    }
+
+    function removeFromCart(index) {
+      cart.splice(index, 1);
+      updateCartUI();
+    }
+
+    function openCartDrawer() {
+      document.getElementById("cartDrawer").classList.add("open");
+    }
+
+    function closeCartDrawer() {
+      document.getElementById("cartDrawer").classList.remove("open");
+    }
+
+    // Quiz Steps
+    function openQuizModal() {
+      document.getElementById("quizModal").classList.add("active");
+      document.getElementById("quizStep1").style.display = "block";
+      document.getElementById("quizStep2").style.display = "none";
+      document.getElementById("quizStep3").style.display = "none";
+      document.getElementById("quizResult").style.display = "none";
+    }
+
+    function closeQuizModal() {
+      document.getElementById("quizModal").classList.remove("active");
+    }
+
+    function selectQuizStep1(brew) {
+      quizState.brew = brew;
+      document.getElementById("quizStep1").style.display = "none";
+      document.getElementById("quizStep2").style.display = "block";
+    }
+
+    function selectQuizStep2(flavor) {
+      quizState.flavor = flavor;
+      document.getElementById("quizStep2").style.display = "none";
+      document.getElementById("quizStep3").style.display = "block";
+    }
+
+    async function selectQuizStep3(milk) {
+      quizState.milk = milk;
+      document.getElementById("quizStep3").style.display = "none";
+      
+      try {
+        const res = await fetch("/api/quiz/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brew_method: quizState.brew,
+            flavor_preference: quizState.flavor,
+            milk_preference: quizState.milk
+          })
+        });
+        const data = await res.json();
+        const bean = data.recommended_bean;
+        const recipe = data.recipe;
+
+        document.getElementById("quizResultContent").innerHTML = `
+          <h4 style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.4rem;">${bean.name}</h4>
+          <p style="font-size: 0.85rem; color: var(--terracotta); font-weight: 600; margin-bottom: 0.8rem;">${bean.descriptors}</p>
+          <div style="font-size: 0.85rem; border-top: 1px dashed var(--warm-border); padding-top: 0.6rem;">
+            <div><strong>Рецепт экстракции (${recipe.method_name}):</strong></div>
+            <div>• Помол: ${recipe.grind_size}</div>
+            <div>• Температура: ${recipe.water_temp}</div>
+            <div>• Пропорция: ${recipe.ratio}</div>
+            <div>• Время: ${recipe.time}</div>
+          </div>
+        `;
+
+        document.getElementById("quizAddBtn").onclick = () => {
+          addToCart(bean.name, "250г", bean.price_250g);
+          closeQuizModal();
+        };
+
+        document.getElementById("quizResult").style.display = "block";
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function openCheckoutModal() {
+      if (cart.length === 0) {
+        alert("Корзина пуста");
+        return;
+      }
+      const name = prompt("Введите ваше имя:");
+      if (!name) return;
+      const phone = prompt("Введите номер телефона / Telegram:");
+      if (!phone) return;
+
+      try {
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_name: name,
+            phone: phone,
+            order_type: "delivery",
+            items: cart
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`✅ ${data.message}\nСумма заказа: ${data.total_amount_rub} ₽`);
+          cart = [];
+          updateCartUI();
+          closeCartDrawer();
+        } else {
+          alert(`Ошибка: ${data.detail}`);
+        }
+      } catch (err) {
+        alert("Ошибка при оформлении заказа");
+      }
+    }
+  </script>
+</body>
+</html>
